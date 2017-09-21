@@ -2,7 +2,7 @@
 
 一个高仿原生安卓的h5照相机
 
-[线上地址](http://auven.github.io/h5_camera)
+[线上地址](http://auven.github.io/h5_camera/)
 
 ## 功能
 
