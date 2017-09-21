@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>一个高仿原生安卓的h5照相机</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        .full {
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .hide {
+            display: none !important;
+        }
+
+        .container {
+            position: fixed;
+            background: #333;
+        }
+
+        .container .sence video {
+            position: absolute;
+            object-fit: cover;
+        }
+
+        .container .sence video.flip {
+            transform: rotateY(180deg);
+        }
+
+        .container .sence canvas {
+            position: absolute;
+        }
+
+        .container .operation .change-facing {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 30px;
+            height: 30px;
+        }
+
+        .container .operation .change-facing img {
+            height: 100%;
+            width: 100%;
+        }
+
+        .container .operation .take-photo {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60px;
+            height: 60px;
+            border: 1px solid #fff;
+            border-radius: 50%;
+            padding: 8px;
+        }
+
+        .container .operation .take-photo a {
+            display: inline-block;
+            width: 100%;
+            height: 100%;
+            background: #fff;
+            border-radius: 50%;
+            transition: all .1s;
+        }
+
+        .container .operation .take-photo a:active {
+            opacity: .9;
+            transform: scale(.9, .9);
+        }
+
+        .container .operation .save-photo {
+            position: absolute;
+            top: 10px;
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 10px;
+        }
+
+        .container .operation .save-photo img {
+            width: 30px;
+            height: 30px;
+        }
+
+        .container .operation .fullscreen {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+        }
+
+        .container .operation .fullscreen img {
+            width: 30px;
+            height: 30px;
+        }
+    </style>
+    <!--  手机端 DevTools，方便调试用 
+    <script src="//cdn.bootcss.com/eruda/1.2.4/eruda.min.js"></script>
+    <script>
+        eruda.init();
+    </script>
+    -->
+</head>
+
+<body>
+    <div class="container full">
+        <div class="sence">
+            <video class="full flip" id="$video" autoplay></video>
+            <canvas class="full hide" id="$canvas"></canvas>
+        </div>
+        <div class="operation full">
+            <div class="change-facing">
+                <img id="$changeFacing" src="./img/change.svg">
+            </div>
+            <div class="save-photo hide">
+                <img id="$dacha" src="./img/dacha.svg">
+                <img id="$dagou" src="./img/dagou.svg">
+            </div>
+            <div class="take-photo">
+                <a id="$takePhoto"></a>
+            </div>
+            <div class="fullscreen">
+                <img id="$quanping" src="./img/quanping.svg">
+                <img id="$tuichuquanping" class="hide" src="./img/tuichuquanping.svg">
+            </div>
+        </div>
+    </div>
+
+    <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+    <script>
+        // 是否为前置摄像头
+        var face = true;
+
+        // 打开摄像机
+        var start = function () {
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: (face ? 'user' : 'environment') }, width: { ideal: 1280 } } })
+                .then(function (stream) {
+                    $video.srcObject = stream
+                })
+                .catch(function (e) {
+                    console.error('发生错误', e);
+                    // 使用上面的方式错误后，尝试使用startById
+                    startById();
+                });
+        }
+
+        // 关闭摄像机
+        var stop = function () { $video.srcObject && $video.srcObject.getTracks().map(function (t) { t.stop() }); }
+
+        // 通过设备id打开摄像机，解决在谷歌手机浏览器上无法切换前后置摄像头
+        function startById() {
+            var facingMode = face ? 'front' : 'back';
+            var videoId = null;
+            navigator.mediaDevices.enumerateDevices()
+                .then(function (devices) {
+                    devices.forEach(function (device) {
+                        console.info(device, device.kind + ": " + device.label +
+                            " id = " + device.deviceId);    
+                        if (device.kind === 'videoinput' && device.label.indexOf(facingMode) !== -1) {
+                            videoId = device.deviceId;
+                        }
+                    });
+
+                    if (videoId) {
+                        console.log('找到了设备id');
+                        navigator.mediaDevices.getUserMedia({ video: {sourceId: videoId}, width: { ideal: 1280 }})
+                            .then(function (stream) { ($video.srcObject = stream) })
+                            .catch(function (e) { console.error('发生错误', e) });
+                    } else {
+                        console.log('没找到');
+                    }
+                })
+                .catch(function (err) {
+                    console.error(err.name + ": " + err.message);
+                });
+        }
+
+        // 切换摄像头
+        var changeFacing = function () {
+            face = !face;
+            stop();
+            if (face) {
+                $video.classList.add('flip');
+            } else {
+                $video.classList.remove('flip');
+            }
+            start();
+        }
+
+        var takePhoto = function () {
+            // 视频源比率
+            var videoRatio = $video.videoHeight / $video.videoWidth;
+            // video元素的宽、高
+            var videoWidth = $video.clientWidth,
+                videoHeight = $video.clientHeight;
+            // video元素比率
+            var videoTrueRatio = videoHeight / videoWidth;
+            // 真实展示出来的视频宽、高
+            var videoTrueWidth = $video.videoWidth,
+                videoTrueHeight = $video.videoHeight;
+
+            // 如果video宽高比率大于视频源比率
+            if (videoTrueRatio > videoRatio) {
+                // 让视频真实宽度等于真实高度乘以video比率
+                videoTrueWidth = videoTrueHeight / videoTrueRatio;
+            } else {
+                // 让视频真实高度等于真实宽度乘以video比率
+                videoTrueHeight = videoTrueWidth * videoTrueRatio;
+            }
+
+            // canvas截取视频源的起点
+            var sX = ($video.videoWidth - videoTrueWidth) / 2,
+                sY = ($video.videoHeight - videoTrueHeight) / 2;
+
+            // 设置canvas的像素（宽高）等于视频的宽高，使得canvas的像素与视频像素保持一致，不设置时默认是300，150
+            $canvas.width = videoTrueWidth;
+            $canvas.height = videoTrueHeight;
+
+            // 判断是否是前置摄像头
+            if (face) {
+                // 如果是，则翻转图片
+                flipCanvas(sX, sY, videoTrueWidth, videoTrueHeight);
+            } else {
+                $canvas.getContext('2d').
+                    drawImage($video, sX, sY, videoTrueWidth, videoTrueHeight, 0, 0, $canvas.width, $canvas.height);
+            }
+            
+            
+            console.log(sX, sY, videoTrueWidth, videoTrueHeight, 0, 0, $canvas.width, $canvas.height);
+
+            $changeFacing.classList.add('hide');
+            $canvas.classList.remove('hide');
+            document.querySelector('.save-photo').classList.remove('hide');
+        }
+
+        // 自拍时需要翻转图片
+        var flipCanvas = function (sX, sY, videoTrueWidth, videoTrueHeight) {
+            // 翻转拍照
+            var cxt = $canvas.getContext('2d');
+            cxt.translate($canvas.width, 0);
+            cxt.scale(-1, 1);
+            // 绘制视频
+            cxt.drawImage($video, sX, sY, videoTrueWidth, videoTrueHeight, 0, 0, $canvas.width, $canvas.height);
+            //翻转回来
+            cxt.translate($canvas.width, 0);
+            cxt.scale(-1, 1);
+        }
+
+        /* 标准化 fullscreenEnabled 属性 （只读） */
+        document.fullscreenEnabled = (function () {
+            var doc = document.documentElement;
+            return ('requestFullscreen' in doc) ||
+                ('webkitRequestFullScreen' in doc) ||
+                // 对Firefox除了能力判断，还加上了属性判断
+                ('mozRequestFullScreen' in doc && document.mozFullScreenEnabled) ||
+                false;
+        })();
+
+        /**
+        * 标准化 fullscreenElement 属性 （只读）
+        * 以同名方法替代
+        */
+        function fullscreenElement() {
+            return document.fullscreenElement ||
+                document.webkitCurrentFullScreenElement ||
+                document.mozFullScreenElement ||
+                null;
+        }
+
+        /**
+        * 标准化 requestFullscreen 方法
+        * @param {DOM} elem 要全屏显示的元素(webkit下只要是DOM即可，Firefox下必须是文档中的DOM元素)
+        */
+        function requestFullscreen(elem) {
+            if (elem.requestFullscreen) {
+                elem.requestFullscreen();
+            }
+            else if (elem.webkitRequestFullScreen) {
+                // 对 Chrome 特殊处理，
+                // 参数 Element.ALLOW_KEYBOARD_INPUT 使全屏状态中可以键盘输入。
+                if (window.navigator.userAgent.toUpperCase().indexOf('CHROME') >= 0) {
+                    elem.webkitRequestFullScreen(Element.ALLOW_KEYBOARD_INPUT);
+                }
+                // Safari 浏览器中，如果方法内有参数，则 Fullscreen 功能不可用。
+                else {
+                    elem.webkitRequestFullScreen();
+                }
+            }
+            else if (elem.mozRequestFullScreen) {
+                elem.mozRequestFullScreen();
+            }
+        }
+
+
+        /**
+        * 标准化 exitFullscreen 方法
+        */
+        function exitFullscreen() {
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            }
+            else if (document.webkitCancelFullScreen) {
+                document.webkitCancelFullScreen();
+            }
+            else if (document.mozCancelFullScreen) {
+                document.mozCancelFullScreen();
+            }
+        }
+
+        window.onload = function () {
+            start();
+
+            $takePhoto.onclick = function () {
+                takePhoto();
+            };
+
+            $changeFacing.onclick = function () {
+                changeFacing();
+            }
+
+            $dagou.onclick = function () {
+                document.querySelector('.save-photo').classList.add('hide');
+                $changeFacing.classList.remove('hide');
+                $canvas.classList.add('hide');
+            }
+
+            $dacha.onclick = function () {
+                document.querySelector('.save-photo').classList.add('hide');
+                $changeFacing.classList.remove('hide');
+                $canvas.classList.add('hide');
+            }
+
+            // 如果浏览器支持全屏
+            if (document.fullscreenEnabled) {
+                $quanping.onclick = function () {
+                    console.log('sadasd');
+                    requestFullscreen(document.querySelector('.container'));
+                    $quanping.classList.add('hide');
+                    $tuichuquanping.classList.remove('hide');
+                }
+
+                $tuichuquanping.onclick = function () {
+                    exitFullscreen();
+                    $quanping.classList.remove('hide');
+                    $tuichuquanping.classList.add('hide');
+                }
+            } else {
+                document.querySelector('.fullscreen').classList.add('hide');
+            }
+
+        };
+    </script>
+</body>
+
+</html>
